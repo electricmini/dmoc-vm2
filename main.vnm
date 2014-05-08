@@ -1,3 +1,4 @@
+;main file for VM2 based canbus DMOC controller manager 
 TO main
   canbus_active := false
 	DMOC_started := false
