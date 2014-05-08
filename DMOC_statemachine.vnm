@@ -1,0 +1,39 @@
+TO process_statemachine
+	if DMOC.speeds.operation_status = OP_STAT_INITIALISING
+	[
+		desired_state := DMOC_STATE_CMD_DISABLE
+	]
+	else if DMOC.speeds.operation_status = OP_STAT_DISABLED
+	[
+		desired_state := DMOC_STATE_CMD_STANDBY
+	]
+	else if DMOC.speeds.operation_status = OP_STAT_READY
+	[																													;once DMOC is ready, simulate the ignition being
+		desired_state := DMOC_STATE_CMD_ENABLE									;		switched on by setting "key_position" to 1
+		key_position := 1
+	]
+	else if (DMOC.speeds.operation_status = OP_STAT_ENABLED) andalso (desired_speed = 0)
+	[																													;if DMOC is enabled but we haven't given a speed yet
+		desired_state := DMOC_STATE_CMD_ENABLE									;		simulate "putting the car into drive"
+		key_position := 1
+		gear_state := GEAR_SELECT_DRIVE
+	]
+	else if (DMOC.speeds.operation_status = OP_STAT_ENABLED)	;ok, DMOC already knows "car is in drive"
+	[																													;		so let's give it a target speed...
+		desired_state := DMOC_STATE_CMD_ENABLE
+		key_position := 1
+		gear_state := GEAR_SELECT_DRIVE
+		desired_speed := 600							;set speed target to +600 rpm
+		desired_torque_upper := 0					;max torque = 0 Nm
+		desired_torque_lower := 0					;min torque = 0 Nm
+	]
+	else
+	[
+		desired_state := DMOC_STATE_CMD_POWERDOWN
+		key_position := 0
+		gear_state := GEAR_SELECT_NEUTRAL
+		desired_speed := 20000
+		desired_torque_upper := 30000
+		desired_torque_lower := 30000
+	]
+END

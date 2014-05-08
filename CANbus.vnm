@@ -1,0 +1,225 @@
+TO process_CAN_messages
+	autodestruct
+	local ID := 0
+	local data := NEW Array(Int 8, 8, 0)
+	local datalen := 0
+	local scratch := 0
+	local csum := 0
+	
+	while CAN.queue <> 0
+	[
+		ID := CAN.look(0)
+		datalen := CAN.look(1)
+		repeat datalen [data.(INDEX0) := CAN.look(4 + INDEX0)]
+		CAN.get
+		
+		can_timeout.reset
+		can_timeout.period := 2000
+		can_timeout.go
+		
+		select case ID
+			case DMOC_STATUS1_ID
+			[
+				canbus_active := true
+				DMOC_started := true
+				;get_DMOC_electrics1
+				scratch := (data.(0) << 8) OR data.(1)
+				DMOC.electrics1.DC_bus_voltage := scratch / 10
+				
+				scratch := (data.(2) << 8) OR data.(3)
+				DMOC.electrics1.DC_bus_current := (scratch / 10) - 500
+				
+				DMOC.electrics1.fault_info := data.(4)
+				DMOC.electrics1.perf_derating := data.(5)
+				DMOC.electrics1.AC_HV_interlock := (data.(7) >> 2) AND 3
+				DMOC.electrics1.powerdown_status := data.(7) AND 3
+			]
+			
+			case DMOC_STATUS2_ID
+			[
+				canbus_active := true
+				DMOC_started := true
+				;get_DMOC_temperatures
+				DMOC.temperatures.rotor_temp := data.(0) - 40
+				DMOC.temperatures.heatsink_temp := data.(1) - 40
+				DMOC.temperatures.stator_temp := data.(2) - 40
+				DMOC.temperatures.nom_im_can_if := data.(3)
+				DMOC.temperatures.cooling_status := (data.(4) >> 6) AND 3
+			]
+			
+			case DMOC_TORQUES_ID
+			[
+				canbus_active := true
+				DMOC_started := true
+				;get_DMOC_torques
+				csum := calc_checksum( DMOC_TORQUES_ID, datalen, data )
+				;if csum = data.(7)
+				;[
+					scratch := (data.(0) << 8) OR data.(1)
+					DMOC.torques.actual_torque := (scratch / 10) - 3000
+					
+					scratch := (data.(2) << 8) OR data.(3)
+					DMOC.torques.max_pos := scratch / 10
+					
+					scratch := (data.(4) << 8) OR data.(5)
+					DMOC.torques.max_neg := (scratch / 10) - 3000
+					
+					DMOC.torques.alive := data.(6)
+					DMOC.torques.csum := data.(7)
+				;]
+			]
+			
+			case DMOC_STATUS3_ID
+			[
+				canbus_active := true
+				DMOC_started := true
+				;get_DMOC_speeds
+				csum := calc_checksum( DMOC_STATUS3_ID, datalen, data )
+				;if csum = data.(7)
+				;[
+					scratch := (data.(0) << 8) OR data.(1)
+					DMOC.speeds.actual_speed := scratch - 20000
+					
+					DMOC.speeds.power_stage_disable := data.(5) AND 3
+					DMOC.speeds.operation_status := (data.(6) >> 4) AND 15
+					DMOC.speeds.alive := data.(6) AND 15
+					DMOC.speeds.csum := data.(7)
+				;]
+			]
+			
+			case DMOC_CURRENTS_ID
+			[
+				canbus_active := true
+				DMOC_started := true
+				;get_DMOC_electrics2
+				csum := calc_checksum( DMOC_CURRENTS_ID, datalen, data )
+				;if csum = data.(7)
+				;[
+					scratch := (data.(0) << 2) OR ((data.(1) AND %11000000) >> 6)
+					DMOC.electrics2.AC_direct_amps := ((scratch / 1.3) AS INT) - 650
+				
+					scratch := ((data.(1) AND %00111111) << 4) OR ((data.(2) AND %11110000) << 4)
+					DMOC.electrics2.AC_quad_amps := ((scratch / 1.3) AS INT) - 650
+				
+					scratch := ((data.(2) AND %00001111) << 6) OR ((data.(3) AND %11111100) >> 2)
+					DMOC.electrics2.AC_direct_volts := ((scratch / 0.5) AS INT) - 250
+				
+					scratch := ((data.(3) AND %00000011) << 8) OR data.(4)
+					DMOC.electrics2.AC_quad_volts := ((scratch / 0.5) AS INT) - 250
+				
+					scratch := (data.(5) << 2) OR ((data.(6) AND %11000000) >> 6)
+					DMOC.electrics2.stator_freq := (scratch DIV 2) - 1000
+				
+					DMOC.electrics2.alive := data.(6) AND %00001111
+					DMOC.electrics2.csum := data.(7)
+				;]
+			]
+			
+			case DMOC_STATUS4_ID
+			[
+				canbus_active := true
+				DMOC_started := true
+				;get_DMOC_status4
+				DMOC.status4.command := data.(0)
+				DMOC.status4.indexno := data.(1)
+			]
+			
+			case DMOC_STATUS5_ID
+			[
+				canbus_active := true
+				DMOC_started := true
+				;get DMOC_status5
+				scratch := (data.(0) << 8) OR data.(1)
+				DMOC.status5.inst_pos_avail_torque := scratch / 10
+				scratch := (data.(2) << 8) OR data.(3)
+				DMOC.status5.inst_neg_avail_torque := (scratch / 10) - 3000
+				DMOC.status5.md_curr_lim_src := data.(4)
+			]
+			
+			case else
+			[
+				printf( "[CAN] unknown ID 0x%X\n", ID )
+			]
+	]
+END
+
+
+TO calc_checksum( ID , bytes , data_array )
+	crc_gen.reset
+	crc_gen.put( ID + 3 )											;add up ID lowbyte and 3
+	crc_gen.put( data_array , 0 , bytes )			;add the data bytes as well
+	return( (256 - crc_gen.get) AND $FF )			;subtract from 256 and return single byte checksum
+END
+
+
+
+TO send_DMOC_commands
+	if CAN.free = 16				;is TX message queue clear?
+	[
+		DMOC_cmd_alive := DMOC_cmd_alive + 2					;increment alive counter for each set of messages...
+		if DMOC_cmd_alive > 15 DMOC_cmd_alive := 0
+
+;---------1st command frame-------------------------
+				
+		DMOC_cmd1_data.(0) := ((desired_speed + 20000) AND $FF00) >> 8
+		DMOC_cmd1_data.(1) := ((desired_speed + 20000) AND $00FF)			;speed
+		
+		DMOC_cmd1_data.(2) := 0
+		DMOC_cmd1_data.(3) := 0
+		DMOC_cmd1_data.(4) := 0
+		
+		DMOC_cmd1_data.(5) := key_position AND $03			;key position
+		
+		DMOC_cmd1_data.(6) := (DMOC_cmd_alive AND $0F) OR
+													((gear_state AND $03) << 4) OR
+													((desired_state AND $03) << 6)
+													
+		DMOC_cmd1_data.(7) := calc_checksum( DMOC_CMD1_ID , 7, dmoc_cmd1_data )
+		
+		CAN.put( DMOC_CMD1_ID, DMOC_cmd1_data.address, 8)
+
+		;-------2nd command frame---------------------------
+
+		;if DMOC.speeds.operation_status = OP_STAT_READY		;only send torque commands if DMOC is ready
+		;[
+			;DMOC_cmd_alive := DMOC_cmd_alive + 2					;increment alive counter for each message...
+			;if DMOC_cmd_alive > 15 DMOC_cmd_alive := 0
+		
+			DMOC_cmd2_data.(0) := ((desired_torque_upper + 30000) AND $FF00) >> 8
+			DMOC_cmd2_data.(1) := ((desired_torque_upper + 30000) AND $00FF)			;torque upper limit
+		
+			DMOC_cmd2_data.(2) := ((desired_torque_lower + 30000) AND $FF00) >> 8
+			DMOC_cmd2_data.(3) := ((desired_torque_lower + 30000) AND $00FF)			;torque lower limit
+		
+			DMOC_cmd2_data.(4) := ((standby_torque + 30000) AND $FF00) >> 8
+			DMOC_cmd2_data.(5) := ((standby_torque + 30000) AND $00FF)			;standby torque
+		
+			DMOC_cmd2_data.(6) := (DMOC_cmd_alive AND $0F)
+													
+			DMOC_cmd2_data.(7) := calc_checksum( DMOC_CMD2_ID , 7, dmoc_cmd2_data )
+		
+			CAN.put( DMOC_CMD2_ID, DMOC_cmd2_data.address, 8)
+		;]
+		;-----------3rd command frame----------------------
+
+		;DMOC_cmd_alive := DMOC_cmd_alive + 2					;increment alive counter for each message...
+		;if DMOC_cmd_alive > 15 DMOC_cmd_alive := 0
+		
+		DMOC_cmd3_data.(0) := (max_regen_power AND $FF00) >> 8
+		DMOC_cmd3_data.(1) := (max_regen_power AND $00FF)			;max regen power
+		
+		DMOC_cmd3_data.(2) := (max_accel_power AND $FF00) >> 8
+		DMOC_cmd3_data.(3) := (max_accel_power AND $00FF)			;max drive power
+		DMOC_cmd3_data.(4) := 0
+		
+		DMOC_cmd3_data.(5) := air_temperature + 40			;ambient air temp, 0 is -40 deg C
+		
+		DMOC_cmd3_data.(6) := (DMOC_cmd_alive AND $0F) OR
+													((instant_torque_reduce AND $03) << 4) OR
+													((powertrain_cool AND $03) << 6)
+													
+		DMOC_cmd3_data.(7) := calc_checksum( DMOC_CMD3_ID , 7, dmoc_cmd3_data )
+		
+		CAN.put( DMOC_CMD3_ID, DMOC_cmd3_data.address, 8)
+]
+END

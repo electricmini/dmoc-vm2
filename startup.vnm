@@ -1,0 +1,66 @@
+TO init
+	make net 		i2cbus
+	make clock 	Realtimeclock
+
+	make CAN 		CANbus(500000)			;500 kbaud, std addresses
+
+	make contactors 	digital(128)		;1st relay on relay card 1
+	make DMOC_power 	digital(129)		;2nd relay on relay card 1
+	make water_pump		digital(130)		;3rd relay on relay card 1
+	make cooling_fan	digital(131)		;4th relay on relay card 1
+
+	make ignition			digital(136)		;digital input, low = ignition is ON
+	make starter			digital(137)		;digital input, low = starter is ON
+
+	make throttle_pedal				analogue($30)		;pot to simulate throttle input
+	make throttle_Vcc_check		analogue($31)		;used to detect loss of Vcc connection
+	make throttle_Gnd_check 	analogue($32)		;used to detect loss of Gnd connection
+
+	make brake_pedal					analogue($33)		;pot to simulate brake pressure sensor
+	make brake_Vcc_check			analogue($11)		;used to detect loss of Vcc connection
+	make brake_Gnd_check			analogue($10)		;used to detect loss of Gnd connection
+	
+	make uSD_pwr	digital($35,%11)
+	uSD_pwr.On		;switch on power to the uSD memory card socket
+
+	make serial2		serialport(115200, 2)		;115k baud, no handshaking
+	make lcd				alphalcd(20,2,0,1)			;20 char x 2 line display, wrapping ON
+
+	canbus_active := false
+	prev_canbus_active := false
+	DMOC_started := false
+	
+	make can_timeout timer(10000)
+	make report_timer timer(500)
+	
+	DMOC := NEW DMOC_base_class( DMOC_STATUS1_ID, DMOC_STATUS2_ID,
+																DMOC_TORQUES_ID, DMOC_STATUS3_ID,
+																DMOC_CURRENTS_ID, DMOC_STATUS4_ID,
+																DMOC_STATUS5_ID )
+
+	make DMOC_cmd1_data array(Int 8, 8, 0)
+	make DMOC_cmd2_data array(Int 8, 8, 0)
+	make DMOC_cmd3_data array(Int 8, 8, 0)
+	
+	make crc_gen CRCgenerator( 8 )						;simple sum generator, adds up all bytes put into it
+	
+	DMOC_cmd_alive := 0
+	
+	desired_speed := 0												;desired motor speed in rpm (rpm control mode), 20000 is zero point
+	key_position := 0													;copy state into here from ignition input...
+	
+	desired_state := DMOC_STATE_CMD_DISABLE		;start up with controller in DISABLE
+	old_state := desired_state
+	
+	gear_state := GEAR_SELECT_NEUTRAL					;start up with "gear selector" in NEUTRAL
+	
+	desired_torque_upper := 0				;30000 is zero point
+	desired_torque_lower := 0
+	standby_torque := 0
+	
+	max_regen_power := $D084						;max power in Watts x 4
+	max_accel_power := $6C66						;values copied from Collin Kidder's GEVCU code
+	air_temperature := 20
+	powertrain_cool := 0						;unknown
+	instant_torque_reduce := 0			;0 = normal, 1 = reduce torque, 2 = invalid, 3 = no action
+END

@@ -1,0 +1,134 @@
+TO main
+  canbus_active := false
+	DMOC_started := false
+	
+	print "VM2 EVCU v0.1",CR
+	print to lcd,"VM2_EVCU v0.1"
+	
+	print "switching contactors ON",CR
+	contactors.on
+	wait 2000
+	
+	CAN.on		;tell CANbus peripheral to go on-bus
+
+	print "waiting for CANbus peripheral to go on-bus",CR
+	print to lcd,CLS,"waiting for CANbus"
+	await CAN.status(0) = 0
+
+	print "CANbus peripheral is on-bus",CR
+	print to lcd,CLS,"CANbus online"
+	
+	print "switching on DMOC",CR
+	DMOC_power.on
+	water_pump.on
+	
+	can_timeout.go
+	print "starting CANbus task",CR
+	start every 5 process_CAN_messages
+	
+	print "waiting for CANbus messages from DMOC...",cr
+	every 200
+	[
+		if can_timeout.done
+			[canbus_active := false]
+		
+		if (canbus_active) andalso (prev_canbus_active isfalse)
+			[print to lcd,cls,"CAN data from DMOC"]
+		
+		if (canbus_active isfalse) andalso (prev_canbus_active)
+			[
+				print to lcd,cls,"no DMOC messages"
+				print CR,CR,"lost communications with DMOC",CR
+				DMOC_started := false
+				desired_state := DMOC_STATE_CMD_POWERDOWN
+				key_position := 0
+				gear_state := GEAR_SELECT_NEUTRAL
+			]
+		
+		prev_canbus_active := canbus_active
+		
+		
+		if report_timer.done
+		[ 
+			report_timer.go
+			if DMOC_started andalso canbus_active
+				[print_brief_DMOC_data]
+		]
+		
+		;if (DMOC_started) andalso (DMOC.speeds.operation_status <> OP_STAT_INITIALISING)
+		if (DMOC.speeds.operation_status <> OP_STAT_INITIALISING)
+		[
+			process_statemachine
+			
+			if old_state <> desired_state
+			[
+				print "STATE CHANGE COMMAND:  ",cr
+				
+				select case DMOC.speeds.operation_status
+					case OP_STAT_INITIALISING [print "current state = INITIALISING  "]
+					case OP_STAT_DISABLED 		[print "current state = DISABLED  "]
+					case OP_STAT_READY  			[print "current state = READY  "]
+					case OP_STAT_ENABLED 			[print "current state = ENABLED  "]
+					case OP_STAT_POWERDOWN 		[print "current state = POWERDOWN  "]
+					case OP_STAT_FAULT 				[print "current state = FAULT  "]
+					case OP_STAT_LOS 					[print "current state = LOS  "]
+					case else									[print "current state = CRITICAL_FAULT  "]
+				
+				select case desired_state
+					case DMOC_STATE_CMD_DISABLE [print "new cmd = DISABLE",cr]
+					case DMOC_STATE_CMD_STANDBY [print "new cmd = STANDBY",cr]
+					case DMOC_STATE_CMD_ENABLE  [print "new cmd = ENABLE",cr]
+					case else										[print "new cmd = POWERDOWN",cr]
+			]
+		]
+		
+		if DMOC_started andalso canbus_active [send_DMOC_commands old_state := desired_state]
+	]
+END
+
+TO print_brief_DMOC_data
+	;print cr,cr,"DMOC status "
+	;if canbus_active print "CAN ok " else print "NO CAN "
+	;print clock:"HH:mm:ss",cr
+	
+	printf("%5.1f V, %5.1f A, ", DMOC.electrics1.DC_bus_voltage, DMOC.electrics1.DC_bus_current)
+	printf("MT %+2d'C, IT %+2d'C, ", DMOC.temperatures.stator_temp, DMOC.temperatures.heatsink_temp)
+	printf("Tq %+5.1f, tMax %+5.1f, tMin %5.1f, ", DMOC.torques.actual_torque, DMOC.torques.max_pos, DMOC.torques.max_neg)
+	printf("RPM %+5d, ", DMOC.speeds.actual_speed, DMOC.speeds.power_stage_disable)
+	
+	select case DMOC.speeds.operation_status
+		case 0
+			[print "INITIALISING",CR]
+		case 1
+			[print "DISABLED",CR]
+		case 2
+			[print "READY",CR]
+		case 3
+			[print "ENABLED",CR]
+		case 4
+			[print "POWERDOWN",CR]
+		case 5
+			[print "FAULT",CR]
+		case 6
+			[print "CRITICAL FAULT",CR]
+		case 7
+			[print "LOS",CR]
+		case else
+			[print "UNKNOWN STATE",CR]
+END
+
+
+TO print_full_DMOC_data
+	print "DMOC status ",clock:"HH:mm:ss",cr
+	printf("DC volts %5.1f   DC amps %5.1f   ", DMOC.electrics1.DC_bus_voltage, DMOC.electrics1.DC_bus_current)
+	printf("faults %01d   derating %d01%%   ", DMOC.electrics1.fault_info, DMOC.electrics1.perf_derating)
+	printf("AC interlock %01d   powerdown status %01d\n", DMOC.electrics1.AC_HV_interlock, DMOC.electrics1.powerdown_status)
+	printf("Rotor temp %+2d'C   heatsink temp %+2d'C   ", DMOC.temperatures.rotor_temp, DMOC.temperatures.heatsink_temp)
+	printf("Stator temp %+2d'C   cooling status %01d\n", DMOC.temperatures.stator_temp, DMOC.temperatures.cooling_status)
+	printf("Torque %+5.1f Nm   Max_T %+5.1f Nm   Min_T %5.1f Nm\n", DMOC.torques.actual_torque, DMOC.torques.max_pos, DMOC.torques.max_neg)
+	printf("Avail pos torque %+5.1f Nm   Avail neg torque %+5.1f Nm\n", DMOC.status5.inst_pos_avail_torque, DMOC.status5.inst_neg_avail_torque)
+	printf("Speed %+5d rpm   powerstage disable %01d   operation status %01d\n", DMOC.speeds.actual_speed, DMOC.speeds.power_stage_disable, DMOC.speeds.operation_status)
+	printf("AC direct amps %+03d   AC quad amps %+03d   ", DMOC.electrics2.AC_direct_amps, DMOC.electrics2.AC_quad_amps)
+	printf("AC direct volts %+03d   AC quad volts %+03d\n", DMOC.electrics2.AC_direct_volts, DMOC.electrics2.AC_quad_volts)
+	printf("stator freq %+03d   command %01d   index %01d\n", DMOC.electrics2.stator_freq, DMOC.status4.command, DMOC.status4.indexno)
+END

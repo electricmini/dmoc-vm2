@@ -1,0 +1,204 @@
+#DEFINE DMOC_STATUS1_ID $650
+#DEFINE DMOC_STATUS2_ID $651
+#DEFINE DMOC_TORQUES_ID $23A
+#DEFINE DMOC_STATUS3_ID $23B
+#DEFINE DMOC_CURRENTS_ID $23E
+#DEFINE DMOC_STATUS4_ID $692
+
+#DEFINE DMOC_STATUS5_ID $AD0600
+
+#DEFINE DMOC_CMD1_ID $232
+#DEFINE DMOC_CMD2_ID $233
+#DEFINE DMOC_CMD3_ID $234
+
+
+#DEFINE HV_INTERLOCK_CLOSED 0
+#DEFINE HV_INTERLOCK_OPEN 1
+#DEFINE HV_INTERLOCK_ERROR 2
+#DEFINE HV_INTERLOCK_UNAVAILABLE 3
+
+#DEFINE POWERDOWN_INACTIVE 0
+#DEFINE POWERDOWN_ACTIVE 1
+#DEFINE POWERDOWN_ERROR 2
+#DEFINE POWERDOWN_UNAVAILABLE 3
+
+#define DMOC_STATE_CMD_DISABLE 0
+#define DMOC_STATE_CMD_STANDBY 1
+#define DMOC_STATE_CMD_ENABLE  2
+#define DMOC_STATE_CMD_POWERDOWN 3
+
+#define GEAR_SELECT_NEUTRAL 0
+#define GEAR_SELECT_DRIVE   1
+#define GEAR_SELECT_REVERSE 2
+#define GEAR_SELECT_ERROR   3
+
+CLASS DMOC_status_frame1
+	ID INT
+	DC_bus_voltage Float
+	DC_bus_current Float
+	fault_info INT
+	perf_derating INT
+	AC_HV_interlock INT
+	powerdown_status INT
+	
+	TO Initialise( ID )
+		this.ID := ID
+		this.DC_bus_voltage := 0.0
+		this.DC_bus_current := 0.0
+		this.fault_info := 0
+		this.perf_derating := 0
+		this.AC_HV_interlock := HV_INTERLOCK_OPEN
+		this.powerdown_status := POWERDOWN_INACTIVE
+	End
+END
+
+CLASS DMOC_status_frame2
+	ID INT
+	rotor_temp INT
+	heatsink_temp INT
+	stator_temp INT
+	nom_im_can_if INT
+	cooling_status INT
+	
+	TO Initialise( ID )
+		this.ID := ID
+		this.rotor_temp := 0
+		this.heatsink_temp := 0
+		this.stator_temp := 0
+		this.nom_im_can_if := 0
+		this.cooling_status := 0
+	End
+END
+
+CLASS DMOC_torque_report
+	ID INT
+	actual_torque Float
+	max_pos Float
+	max_neg Float
+	alive INT
+	csum INT
+	
+	TO Initialise( ID )
+		this.ID := ID
+		this.actual_torque := 0.0
+		this.max_pos := 300.0
+		this.max_neg := -300.0
+		this.alive := 0
+		this.csum := 0
+	End
+END
+
+#DEFINE OP_STAT_INITIALISING 0
+#DEFINE OP_STAT_DISABLED 1
+#DEFINE OP_STAT_READY 2
+#DEFINE OP_STAT_ENABLED 3
+#DEFINE OP_STAT_POWERDOWN 4
+#DEFINE OP_STAT_FAULT 5
+#DEFINE OP_STAT_CRITICAL_FAULT 6
+#DEFINE OP_STAT_LOS 7
+
+CLASS DMOC_status_frame3
+	ID INT
+	actual_speed INT
+	power_stage_disable INT
+	operation_status INT
+	alive INT
+	csum INT
+	
+	TO Initialise( ID )
+		this.ID := ID
+		this.actual_speed := 0
+		this.power_stage_disable := 0
+		this.operation_status := 0
+		this.alive := 0
+		this.csum := 0
+	End
+END
+
+CLASS DMOC_current_report
+	ID INT
+	AC_direct_amps INT
+	AC_quad_amps INT
+	AC_direct_volts INT
+	AC_quad_volts INT
+	stator_freq INT
+	alive INT
+	csum INT
+	
+	To Initialise( ID )
+		this.ID := ID
+		this.AC_direct_amps := 0
+		this.AC_quad_amps := 0
+		this.AC_direct_volts := 0
+		this.AC_quad_volts := 0
+		this.stator_freq := 0
+		this.alive := 0
+		this.csum := 0
+	End
+END
+
+CLASS DMOC_status_frame4
+	ID INT
+	command INT
+	indexno INT
+	
+	TO Initialise( ID )
+		this.ID := ID
+		this.command := 0
+		this.indexno := 0
+	End
+END
+
+CLASS DMOC_status_frame5
+	ID INT
+	inst_pos_avail_torque Float
+	inst_neg_avail_torque Float
+	md_curr_lim_src INT
+	
+	TO Initialise( ID )
+		this.ID := ID
+		this.inst_pos_avail_torque := 0.0
+		this.inst_neg_avail_torque := 0.0
+		this.md_curr_lim_src := 0
+	End
+END
+
+CLASS DMOC_base_class
+	electrics1 Any
+	temperatures Any
+	torques Any
+	speeds Any
+	electrics2 Any
+	status4 Any
+	status5 Any
+	
+	TO Initialise( status1_ID, status2_ID, torque_ID, status3_ID, current_ID, status4_ID, status5_ID )
+		this.electrics1 := NEW DMOC_status_frame1( status1_ID )
+		this.temperatures := NEW DMOC_status_frame2( status2_ID )
+		this.torques := NEW DMOC_torque_report( torque_ID )
+		this.speeds := NEW DMOC_status_frame3( status3_ID )
+		this.electrics2 := NEW DMOC_current_report( current_ID )
+		this.status4 := NEW DMOC_status_frame4( status4_ID )
+		this.status5 := NEW DMOC_status_frame5( status5_ID )
+	End
+	
+	To print([frmt])
+		select case frmt
+			case 1
+				print this.electrics1
+			case 2
+				print this.temperatures
+			case 3
+				print this.torques
+			case 4
+				print this.speeds
+			case 5
+				print this.electrics2
+			case 6
+				print this.status4
+			case 7
+				print this.status5
+			case else
+				print "DMOC CAN bus controller object",CR
+	End
+END
